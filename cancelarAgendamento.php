@@ -1,46 +1,32 @@
 <?php
-require_once 'auth.php';
-date_default_timezone_set('America/Sao_Paulo');
+require_once __DIR__ . '/auth.php';
 
-if (!isset($_SESSION['id'])) {
-    die('Você precisa estar logado para cancelar um agendamento.');
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_POST['id_agendamento'])) {
+    http_response_code(400);
+    exit('Erro: ID do agendamento não informado.');
+}
+csrf_verificar();
+
+$id_agendamento = (int) $_POST['id_agendamento'];
+$id_professor_logado = (int) $_SESSION['id'];
+
+// Só apaga se o agendamento for do professor logado.
+$stmt = db()->prepare('SELECT data FROM agendamento WHERE id = ? AND id_professor = ?');
+$stmt->bind_param('ii', $id_agendamento, $id_professor_logado);
+$stmt->execute();
+$agendamento = $stmt->get_result()->fetch_assoc();
+$stmt->close();
+
+if (!$agendamento) {
+    http_response_code(403);
+    exit('Erro: Agendamento não encontrado ou você não tem permissão para cancelá-lo.');
 }
 
-$conn = new mysqli("localhost", "root", "", "chromebook");
-if ($conn->connect_error) {
-    die("Falha na conexão: " . $conn->connect_error);
-}
+$stmt = db()->prepare('DELETE FROM agendamento WHERE id = ? AND id_professor = ?');
+$stmt->bind_param('ii', $id_agendamento, $id_professor_logado);
+$stmt->execute();
+$stmt->close();
 
-if (isset($_POST['id_agendamento'])) {
-    $id_agendamento = intval($_POST['id_agendamento']);
-    $id_professor_logado = $_SESSION['id'];
-
-    $sql = "SELECT * FROM agendamento WHERE id = ? AND id_professor = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ii", $id_agendamento, $id_professor_logado);
-    $stmt->execute();
-    $result = $stmt->get_result();
-
-    if ($result->num_rows > 0) {
-        $delete_sql = "DELETE FROM agendamento WHERE id = ?";
-        $delete_stmt = $conn->prepare($delete_sql);
-        $delete_stmt->bind_param("i", $id_agendamento);
-        if ($delete_stmt->execute()) {
-            $data_atual = htmlspecialchars(date("d-m-Y"), ENT_QUOTES, 'UTF-8');
-            echo "<script>
-                    alert('" . htmlspecialchars('Agendamento cancelado com sucesso.', ENT_QUOTES, 'UTF-8') . "');
-                    window.location.href = 'AgendaSemanal.php?id_professor=" . urlencode($id_professor_logado) . "&data=" . urlencode($data_atual) . "';
-                  </script>";
-        } else {
-            echo htmlspecialchars('Erro ao cancelar o agendamento.', ENT_QUOTES, 'UTF-8');
-        }
-        $delete_stmt->close();
-    } else {
-        echo htmlspecialchars('Erro: Agendamento não encontrado ou você não tem permissão para cancelá-lo.', ENT_QUOTES, 'UTF-8');
-    }
-    $stmt->close();
-} else {
-    echo htmlspecialchars('Erro: ID do agendamento não informado.', ENT_QUOTES, 'UTF-8');
-}
-
-$conn->close();
+// Volta para a semana do agendamento cancelado.
+$destino = 'AgendaSemanal.php?data=' . urlencode($agendamento['data']);
+echo "<script>alert('Agendamento cancelado com sucesso.'); window.location.href = " . json_encode($destino) . ";</script>";

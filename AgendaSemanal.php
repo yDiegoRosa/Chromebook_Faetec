@@ -1,5 +1,5 @@
 <?php
-require_once 'auth.php'; // Autenticação de sessão (verifique se a sessão está ativa)
+require_once __DIR__ . '/auth.php'; // Exige login
 // Função para obter o início da semana (segunda-feira) para uma determinada data
 setlocale(LC_TIME, 'pt_BR', 'pt_BR.utf-8', 'portuguese');
 
@@ -94,98 +94,60 @@ function gerarHorarios()
 }
 
 
-// Verifica se o parâmetro id_professor foi passado na URL
-if (isset($_GET['id_professor'])) {
-    $id_professor = $_GET['id_professor'];
+// O professor logado vem da sessão (não da URL).
+$id_professor = (int) $_SESSION['id'];
 
-    // Conexão com o banco de dados
-    $conn = new mysqli("localhost", "root", "", "chromebook");
-    if ($conn->connect_error) {
-        die("Falha na conexão: " . $conn->connect_error);
-    }
-
-    // Obter a data da semana atual ou da semana passada através de parâmetros GET
-    $hoje = isset($_GET['data']) ? $_GET['data'] : date('d-m-Y');
-    $inicioDaSemana = obterInicioDaSemana($hoje);
-    $fimDaSemana = date('d-m-Y', strtotime($inicioDaSemana . ' + 6 days'));
-    $horarios = gerarHorarios();
-
-    // Consulta SQL para obter os agendamentos da semana
-    $sql = "SELECT agendamento.*, professor.nome AS professor_nome, agendamento.idCor
-        FROM agendamento
-        JOIN professor ON agendamento.id_professor = professor.id
-        WHERE STR_TO_DATE(agendamento.data, '%d-%m-%Y') BETWEEN STR_TO_DATE(?, '%d-%m-%Y') 
-        AND STR_TO_DATE(?, '%d-%m-%Y')";
-
-    // Prepara a consulta SQL
-    $stmt = $conn->prepare($sql);
-    if ($stmt === false) {
-        die('Erro na preparação da consulta SQL: ' . $conn->error);
-    }
-
-    // Vincula os parâmetros à consulta preparada
-    $stmt->bind_param("ss", $inicioDaSemana, $fimDaSemana);
-
-    // Executa a consulta
-    $stmt->execute();
-
-    // Obtém o resultado da consulta
-    $result = $stmt->get_result();
-
-    // Processa os resultados da consulta
-    if ($result->num_rows > 0) {
-        while ($agendamento = $result->fetch_assoc()) {
-            $inicio = strtotime($agendamento['data'] . ' ' . $agendamento['horario']);
-            $hora_formatada = date('H:i', $inicio);
-            $diaSemana = date('l', $inicio); // Obtém o dia da semana completo (ex: Monday, Tuesday, etc.)
-
-            // Converte o dia da semana para o nome em português
-            switch ($diaSemana) {
-                case 'Monday':
-                    $diaSemana = 'Segunda';
-                    break;
-                case 'Tuesday':
-                    $diaSemana = 'Terça';
-                    break;
-                case 'Wednesday':
-                    $diaSemana = 'Quarta';
-                    break;
-                case 'Thursday':
-                    $diaSemana = 'Quinta';
-                    break;
-                case 'Friday':
-                    $diaSemana = 'Sexta';
-                    break;
-            }
-
-            // Adiciona o agendamento ao array de horários exibe pro usuario
-            if (isset($horarios[$hora_formatada][$diaSemana])) {
-                $horarios[$hora_formatada][$diaSemana][] = [
-                    'professor_nome' => $agendamento['professor_nome'],  // Exibe o nome do professor
-                    'data_hora' => $agendamento['data'] . ' ' . $agendamento['horario'],
-                    'idCor' => $agendamento['idCor'],
-                    "idProf" => $agendamento['id_professor'],
-                    'id' => $agendamento['id']
-                ];
-            } else {
-                $horarios[$hora_formatada][$diaSemana] = [];
-            }
-        }
-    }
-
-    // Fecha a conexão e a consulta
-    $stmt->close();
-    $conn->close();
-}
-
-// Código para logout
+// Logout (POST com token CSRF)
 if (isset($_POST['logout'])) {
-    session_start();
-    session_unset(); // Destrói todas as variáveis de sessão
-    session_destroy(); // Destrói a sessão
-    header("Location: Login.html"); // Redireciona para a página de login
+    csrf_verificar();
+    session_unset();
+    session_destroy();
+    header('Location: Login.html');
     exit();
 }
+
+// Data da semana exibida (?data=dd-mm-aaaa). Valor inválido volta para hoje.
+$hoje = date('d-m-Y');
+if (isset($_GET['data'])) {
+    $dt = DateTime::createFromFormat('!d-m-Y', (string) $_GET['data']);
+    if ($dt && $dt->format('d-m-Y') === $_GET['data']) {
+        $hoje = $_GET['data'];
+    }
+}
+$inicioDaSemana = obterInicioDaSemana($hoje);
+$fimDaSemana = date('d-m-Y', strtotime($inicioDaSemana . ' + 6 days'));
+$horarios = gerarHorarios();
+
+$sql = "SELECT agendamento.*, professor.nome AS professor_nome
+    FROM agendamento
+    JOIN professor ON agendamento.id_professor = professor.id
+    WHERE STR_TO_DATE(agendamento.data, '%d-%m-%Y') BETWEEN STR_TO_DATE(?, '%d-%m-%Y')
+    AND STR_TO_DATE(?, '%d-%m-%Y')
+    ORDER BY agendamento.idCor";
+$stmt = db()->prepare($sql);
+$stmt->bind_param("ss", $inicioDaSemana, $fimDaSemana);
+$stmt->execute();
+$result = $stmt->get_result();
+
+$diasPt = ['Monday' => 'Segunda', 'Tuesday' => 'Terça', 'Wednesday' => 'Quarta', 'Thursday' => 'Quinta', 'Friday' => 'Sexta'];
+while ($agendamento = $result->fetch_assoc()) {
+    $inicio = strtotime($agendamento['data'] . ' ' . $agendamento['horario']);
+    if ($inicio === false) {
+        continue; // registro com horário inválido
+    }
+    $hora_formatada = date('H:i', $inicio);
+    $diaSemana = $diasPt[date('l', $inicio)] ?? null;
+
+    if ($diaSemana !== null && isset($horarios[$hora_formatada][$diaSemana])) {
+        $horarios[$hora_formatada][$diaSemana][] = [
+            'professor_nome' => $agendamento['professor_nome'],
+            'idCor' => $agendamento['idCor'],
+            'idProf' => (int) $agendamento['id_professor'],
+            'id' => (int) $agendamento['id']
+        ];
+    }
+}
+$stmt->close();
 
 ?>
 <!DOCTYPE html>
@@ -419,6 +381,7 @@ if (isset($_POST['logout'])) {
     ?>
 
     <form method="post" action="AgendaSemanal.php">
+        <?php echo csrf_campo(); ?>
         <button type="submit" name="logout" class="logout-btn">Sair</button>
     </form>
 
@@ -430,10 +393,10 @@ if (isset($_POST['logout'])) {
     <div class="navegacao">
         <a href="Agendamento.php">Agendar</a>
         <a
-            href="?id_professor=<?php echo $id_professor; ?>&data=<?php echo date('d-m-Y', strtotime($inicioDaSemana . ' - 7 days')); ?>">Semana
+            href="?data=<?php echo date('d-m-Y', strtotime($inicioDaSemana . ' - 7 days')); ?>">Semana
             Anterior</a> <!--BOTAOOOO-->
         <a
-            href="?id_professor=<?php echo $id_professor; ?>&data=<?php echo date('d-m-Y', strtotime($inicioDaSemana . ' + 7 days')); ?>">Próxima
+            href="?data=<?php echo date('d-m-Y', strtotime($inicioDaSemana . ' + 7 days')); ?>">Próxima
             Semana</a>
 
     </div>
@@ -516,12 +479,13 @@ if (isset($_POST['logout'])) {
                                             ?>
                                             <div class="agendamento" style="background-color: <?php echo $color; ?>;">
                                                 <strong><?php echo htmlspecialchars($agendamento['professor_nome']); ?></strong>
-                                                <?php if ($_GET["id_professor"] == $agendamento["idProf"]) {
-                                                    echo '<form action="cancelarAgendamento.php" method="post">
-                                                    <input type="hidden" name="id_agendamento" value=' .  $agendamento["id"]  . '
-                                                    /><button type="submit">Cancelar</button>
-                                                    </form>';
-                                                } ?>
+                                                <?php if ($id_professor === $agendamento['idProf']): ?>
+                                                    <form action="cancelarAgendamento.php" method="post" onsubmit="return confirm('Cancelar este agendamento?');">
+                                                        <?php echo csrf_campo(); ?>
+                                                        <input type="hidden" name="id_agendamento" value="<?php echo e($agendamento['id']); ?>">
+                                                        <button type="submit">Cancelar</button>
+                                                    </form>
+                                                <?php endif; ?>
                                             </div>
                                         <?php endforeach; ?>
                                     <?php endif; ?>

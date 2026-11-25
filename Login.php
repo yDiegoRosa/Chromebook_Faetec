@@ -1,53 +1,46 @@
 <?php
-session_start();
+require_once __DIR__ . '/config.php';
+iniciar_sessao();
 
-$conn = new mysqli("localhost", "root", "", "chromebook");
-if ($conn->connect_error) {
-    die("Conexão falhou: " . $conn->connect_error);
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Location: Login.html');
+    exit();
 }
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $email = filter_var($_POST['email'], FILTER_SANITIZE_EMAIL);
-    $senha = $_POST['senha'];
+$email = trim((string) ($_POST['email'] ?? ''));
+$senha = (string) ($_POST['senha'] ?? '');
 
-    $sql = "SELECT id, nome, senha FROM professor WHERE email = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("s", $email);
-    $stmt->execute();
-    $stmt->store_result();
+$stmt = db()->prepare('SELECT id, nome, senha, deve_trocar_senha FROM professor WHERE email = ?');
+$stmt->bind_param('s', $email);
+$stmt->execute();
+$professor = $stmt->get_result()->fetch_assoc();
+$stmt->close();
 
-    if ($stmt->num_rows > 0) {
-        $stmt->bind_result($id, $nome, $senha_bd);
-        $stmt->fetch();
+$ok = false;
+$trocar = false;
 
-        // Verifica se a senha armazenada no banco é "faeterj123" sem criptografia
-        if ($senha_bd === "faeterj123" && $senha === "faeterj123") {
-            $_SESSION['id'] = $id;
-            $_SESSION['nome'] = htmlspecialchars($nome, ENT_QUOTES, 'UTF-8');
-            header("Location: /Agendamento-Chromebook-main/MudarSenha.php?id_professor=$id");
-            exit();
-        }
-
-        // Verifica se a senha digitada corresponde à senha criptografada no banco
-        if (password_verify($senha, $senha_bd)) {
-            $_SESSION['id'] = $id;
-            $_SESSION['nome'] = htmlspecialchars($nome, ENT_QUOTES, 'UTF-8');
-            header("Location: /Agendamento-Chromebook-main/AgendaSemanal.php?id_professor=$id");
-            exit();
-        } else {
-            echo "<script>
-                    alert('" . htmlspecialchars('Senha incorreta!', ENT_QUOTES, 'UTF-8') . "');
-                    window.location.href = 'Login.html#popup1';
-                  </script>";
-        }
+if ($professor) {
+    $hash = $professor['senha'];
+    if (password_get_info($hash)['algo'] !== null) {
+        $ok = password_verify($senha, $hash);
     } else {
-        echo "<script>
-                alert('" . htmlspecialchars('Email incorreto!', ENT_QUOTES, 'UTF-8') . "');
-                window.location.href = 'Login.html#popup1';
-              </script>";
+        // Senha antiga gravada sem criptografia: aceita uma única vez e obriga a troca.
+        $ok = hash_equals($hash, $senha);
+        $trocar = true;
     }
-
-    $stmt->close();
+    $trocar = $trocar || (int) $professor['deve_trocar_senha'] === 1 || $senha === SENHA_PADRAO;
 }
 
-$conn->close();
+if (!$ok) {
+    // Mesma mensagem para e-mail e senha errados, para não revelar quais e-mails existem.
+    echo "<script>alert('E-mail ou senha incorretos.'); window.location.href = 'Login.html#popup1';</script>";
+    exit();
+}
+
+session_regenerate_id(true);
+$_SESSION['id'] = (int) $professor['id'];
+$_SESSION['nome'] = $professor['nome'];
+$_SESSION['trocar_senha'] = $trocar;
+
+header('Location: ' . ($trocar ? 'MudarSenha.php' : 'AgendaSemanal.php'));
+exit();

@@ -1,12 +1,5 @@
 <?php
-@require 'Login.php';
-require_once 'auth.php';
-
-date_default_timezone_set("America/Sao_Paulo");
-
-$id = $_SESSION['id'];
-$actualDate = date("d-m-Y");
-
+require_once __DIR__ . '/auth.php';
 ?>
 
 <!DOCTYPE html>
@@ -26,12 +19,12 @@ $actualDate = date("d-m-Y");
 
         <div class="calendario">
 
-            <a class="btn-ant" id="btn_prev"><img src="https://i.imgur.com/wrwDSRQ.png" /></a>
+            <a class="btn-ant" id="btn_prev"><img src="imagens/icon-voltar.png" alt="Mês anterior" /></a>
 
             <h2 id="mes" style="color: white;">Mês</h2>
             <h2 id="ano" style="color: white;">Ano</h2>
 
-            <a class="btn-pro" id="btn_next"><img src="https://i.imgur.com/4NINDmb.png" /></a>
+            <a class="btn-pro" id="btn_next"><img src="imagens/icon-avancar.png" alt="Próximo mês" /></a>
 
             <table>
                 <thead>
@@ -144,9 +137,10 @@ $actualDate = date("d-m-Y");
                 <option value="5">5</option>
             </select><br>
         </section>
-        <input type="hidden" id="redirect" value="<?php echo "?id_professor=$id&data=$actualDate" ?>">
+        <input type="hidden" id="csrf" value="<?php echo e(csrf_token()); ?>">
         <br><br>
         <input type="submit" id="submit" value="Reservar">
+        <p style="text-align:center"><a href="AgendaSemanal.php">Voltar para a agenda</a></p>
 
     </section>
 
