@@ -1,10 +1,15 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+// Inclua no topo de toda página que exige login.
+require_once __DIR__ . '/config.php';
+iniciar_sessao();
+
+if (!isset($_SESSION['id'])) {
+    header('Location: Login.html');
+    exit();
 }
 
-if (!isset($_SESSION["id"])) {
-    http_response_code(401);
-    header('Location: /Agendamento-Chromebook-main/Login.html');
+// Quem entrou com a senha temporária precisa trocá-la antes de usar o sistema.
+if (!empty($_SESSION['trocar_senha']) && basename($_SERVER['SCRIPT_NAME']) !== 'MudarSenha.php') {
+    header('Location: MudarSenha.php');
     exit();
 }

@@ -1,74 +1,34 @@
 <?php
-// Habilitar exibição de erros
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+require_once __DIR__ . '/auth.php';
 
-session_start();
+// O professor só pode trocar a própria senha: o id vem da sessão, nunca do formulário.
+$id_professor = (int) $_SESSION['id'];
+$error = '';
 
-// Conectar ao banco de dados
-$servername = "localhost";
-$username = "root";
-$password = "";
-$dbname = "chromebook";
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verificar();
+    $nova_senha = (string) ($_POST['nova_senha'] ?? '');
+    $confirmar_senha = (string) ($_POST['confirmar_senha'] ?? '');
 
-$conn = new mysqli($servername, $username, $password, $dbname);
-
-// Verificar conexão
-if ($conn->connect_error) {
-    die("Conexão falhou: " . $conn->connect_error);
-}
-
-// Verificar se o ID do professor está sendo passado corretamente
-if ($_SERVER["REQUEST_METHOD"] == "GET") {
-    if (!isset($_GET['id_professor'])) {
-        die("ID do professor não fornecido.");
-    }
-    $id_professor = $_GET['id_professor'];
-} elseif ($_SERVER["REQUEST_METHOD"] == "POST") {
-    if (!isset($_POST['id_professor'])) {
-        die("ID do professor não fornecido.");
-    }
-    $id_professor = $_POST['id_professor'];
-}
-
-$error = ''; // Variável para mensagens de erro
-
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $nova_senha = $_POST['nova_senha'];
-    $confirmar_senha = $_POST['confirmar_senha'];
-
-    // Verificar se as senhas coincidem
     if ($nova_senha !== $confirmar_senha) {
-        $error = "As senhas não coincidem!";
-    } elseif ($nova_senha === 'faeterj123') {
-        // Impedir que o usuário escolha "faeterj123" como nova senha
-        $error = "A nova senha não pode ser 'faeterj123'. Escolha outra senha.";
+        $error = 'As senhas não coincidem!';
+    } elseif (mb_strlen($nova_senha) < SENHA_MIN) {
+        $error = 'A nova senha precisa ter pelo menos ' . SENHA_MIN . ' caracteres.';
+    } elseif ($nova_senha === SENHA_PADRAO) {
+        $error = 'A nova senha não pode ser a senha padrão. Escolha outra senha.';
     } else {
-        // Criptografar a nova senha antes de salvar
-        $hashed_password = password_hash($nova_senha, PASSWORD_DEFAULT); //criptografia
-
-        // Atualizar a senha no banco de dados com a senha criptografada
-        $stmt = $conn->prepare("UPDATE professor SET senha=? WHERE id=?");
-        if ($stmt === false) {
-            die("Erro ao preparar a consulta: " . $conn->error);
-        }
-
-        $stmt->bind_param("si", $hashed_password, $id_professor);
-
-        if ($stmt->execute()) {
-            // Se a atualização for bem-sucedida, redirecionar o usuário
-            header("Location: /Agendamento-Chromebook-main/AgendaSemanal.php?id_professor=$id_professor");
-            exit();
-        } else {
-            $error = "Erro ao atualizar a senha: " . $stmt->error;
-        }
-
+        $hash = password_hash($nova_senha, PASSWORD_DEFAULT);
+        $stmt = db()->prepare('UPDATE professor SET senha = ?, deve_trocar_senha = 0 WHERE id = ?');
+        $stmt->bind_param('si', $hash, $id_professor);
+        $stmt->execute();
         $stmt->close();
+
+        $_SESSION['trocar_senha'] = false;
+        session_regenerate_id(true);
+        header('Location: AgendaSemanal.php');
+        exit();
     }
 }
-
-$conn->close();
 ?>
 
 <!DOCTYPE html>
@@ -238,7 +198,7 @@ $conn->close();
     </style>
     <script>
         window.onload = function() {
-            const errorMessage = '<?php echo addslashes($error); ?>'; // Captura a mensagem de erro do PHP
+            const errorMessage = <?php echo json_encode($error, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>; // Captura a mensagem de erro do PHP
             const erroDiv = document.querySelector('#error-message');
 
             if (errorMessage) {
@@ -258,9 +218,9 @@ $conn->close();
             <h1 class="login5">Alterar Senha</h1>
             <div class="login-card-cont">
                 <form method="post" action="MudarSenha.php">
-                    <input type="hidden" name="id_professor" value="<?php echo htmlspecialchars($id_professor); ?>">
+                    <?php echo csrf_campo(); ?>
                     <label for="nova_senha">Nova Senha:</label>
-                    <input type="password" id="nova_senha" name="nova_senha" required>
+                    <input type="password" id="nova_senha" name="nova_senha" minlength="<?php echo SENHA_MIN; ?>" required>
 
                     <label for="confirmar_senha">Confirmar Senha:</label>
                     <input type="password" id="confirmar_senha" name="confirmar_senha" required>

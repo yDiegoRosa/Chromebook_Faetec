@@ -1,0 +1,36 @@
+# Sobe o sistema completo (PHP + banco) com um comando:
+#   docker compose up
+# Depois abra http://localhost:8080
+services:
+  app:
+    build: .
+    ports:
+      - "${PORTA:-8080}:80"
+    environment:
+      DB_HOST: db
+      DB_USER: chromebook
+      DB_PASS: chromebook_dev
+      DB_NAME: chromebook
+    volumes:
+      - ./:/var/www/html   # edite os arquivos e só recarregue a página
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: root_dev
+      MARIADB_DATABASE: chromebook
+      MARIADB_USER: chromebook
+      MARIADB_PASSWORD: chromebook_dev
+    volumes:
+      - ./chromebook.sql:/docker-entrypoint-initdb.d/01-chromebook.sql:ro
+      - dados:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  dados:
